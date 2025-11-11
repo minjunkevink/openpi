@@ -33,8 +33,12 @@ echo "For each task:"
 echo "  - Subset (original): 1 rollout"
 echo "  - Superset (abstract): 10 rollouts"
 echo ""
-echo "Videos will be saved to: data/libero/hierarchical_experiments"
+echo "Videos will be saved to: data/libero/custom_prompts/hierarchical"
 echo "Wandb logging: ENABLED (use --args.use-wandb=false to disable)"
+echo ""
+echo "Configurable options:"
+echo "  --args.hierarchical-subset-rollouts N    (default: 1)"
+echo "  --args.hierarchical-superset-rollouts N  (default: 10)"
 echo "=========================================="
 echo ""
 
@@ -56,13 +60,13 @@ uv run python run_custom_libero_prompts.py \
     --args.host localhost \
     --args.port 8000 \
     --args.task-suite-name libero_10 \
-    --args.video-out-path data/libero/hierarchical_experiments \
+    --args.video-out-path data/libero/custom_prompts \
     "${@}"  # Pass through any additional arguments
 
 echo ""
 echo "=========================================="
 echo "Hierarchical experiment complete!"
-echo "Videos saved to: data/libero/hierarchical_experiments"
+echo "Videos saved to: data/libero/custom_prompts/hierarchical"
 echo "Check wandb for side-by-side video comparisons and metrics"
 echo "=========================================="
 
