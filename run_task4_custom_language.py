@@ -75,6 +75,13 @@ class Args:
     use_wandb: bool = True  # Whether to log to wandb
     wandb_project: str = "openpi-libero-task4-custom-language"  # Wandb project name
     wandb_run_name: str | None = None  # Wandb run name (auto-generated if None)
+    
+    #################################################################################################################
+    # State noise (for language robustness experiments)
+    #################################################################################################################
+    state_noise_std: float = 0.0  # Standard deviation of Gaussian noise to add to state (0.0 = no noise)
+    state_noise_type: str = "gaussian"  # Type of noise: "gaussian", "uniform", or "mask"
+    language_type: str = "custom"  # Language type label for wandb naming (e.g., "goal_state", "paraphrase")
 
 
 def _quat2axisangle(quat):
@@ -148,17 +155,39 @@ def run_single_rollout(
 
             if not action_plan:
                 # Finished executing previous action chunk -- compute new chunk
+                # Get raw state
+                raw_state = np.concatenate(
+                    (
+                        obs["robot0_eef_pos"],
+                        _quat2axisangle(obs["robot0_eef_quat"]),
+                        obs["robot0_gripper_qpos"],
+                    )
+                )
+
+                # Apply noise if enabled
+                if args.state_noise_std > 0:
+                    if args.state_noise_type == "gaussian":
+                        noise = np.random.normal(0, args.state_noise_std, size=raw_state.shape)
+                        noisy_state = raw_state + noise
+                    elif args.state_noise_type == "uniform":
+                        noise = np.random.uniform(-args.state_noise_std, args.state_noise_std, size=raw_state.shape)
+                        noisy_state = raw_state + noise
+                    elif args.state_noise_type == "mask":
+                        # Zero out first N dimensions (position)
+                        masked_state = raw_state.copy()
+                        mask_dim = int(args.state_noise_std)  # Use std as mask dimension count
+                        masked_state[:mask_dim] = 0
+                        noisy_state = masked_state
+                    else:
+                        noisy_state = raw_state
+                else:
+                    noisy_state = raw_state
+
                 # Prepare observations dict
                 element = {
                     "observation/image": img,
                     "observation/wrist_image": wrist_img,
-                    "observation/state": np.concatenate(
-                        (
-                            obs["robot0_eef_pos"],
-                            _quat2axisangle(obs["robot0_eef_quat"]),
-                            obs["robot0_gripper_qpos"],
-                        )
-                    ),
+                    "observation/state": noisy_state,  # Use noisy state
                     "prompt": custom_prompt,  # Use custom prompt instead of task.language
                 }
 
@@ -203,9 +232,10 @@ def main(args: Args) -> None:
     if args.use_wandb:
         try:
             import wandb
+            wandb_run_name = args.wandb_run_name or f"task4_NOISE_{args.state_noise_std:.3f}_{args.language_type}_{wandb.util.generate_id()}"
             wandb_run = wandb.init(
                 project=args.wandb_project,
-                name=args.wandb_run_name or f"task4_custom_language_{wandb.util.generate_id()}",
+                name=wandb_run_name,
                 config={
                     "task_idx": TASK_4_IDX,
                     "task_name": "Put the white mug on the left plate and put the yellow and white mug on the right plate",
@@ -213,6 +243,9 @@ def main(args: Args) -> None:
                     "num_rollouts_per_prompt": args.num_rollouts_per_prompt,
                     "seed": args.seed,
                     "max_steps": args.max_steps,
+                    "state_noise_std": args.state_noise_std,
+                    "state_noise_type": args.state_noise_type,
+                    "language_type": args.language_type,
                 },
             )
         except ImportError:
@@ -299,8 +332,10 @@ def main(args: Args) -> None:
                     )
                     
                     # Log video from file path (no moviepy needed)
+                    # Log video to wandb with noise info in path
+                    wandb_key = f"videos/noise_{args.state_noise_std:.3f}_{args.language_type}/prompt_{prompt_idx+1}/rollout_{rollout_idx+1}"
                     wandb_run.log({
-                        f"videos/prompt_{prompt_idx+1}/rollout_{rollout_idx+1}": wandb.Video(
+                        wandb_key: wandb.Video(
                             tmp_video_path,
                             format="mp4",
                             caption=custom_prompt
